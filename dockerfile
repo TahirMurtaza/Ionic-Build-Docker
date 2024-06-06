@@ -34,28 +34,43 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools && \
 RUN mkdir -p ${ANDROID_HOME}/licenses && \
     echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ${ANDROID_HOME}/licenses/android-sdk-license
 
-# Install required Android SDK packages
-RUN yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses && \
-    ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "build-tools;30.0.3"
 
+RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --update
+
+# Install required Android SDK packages
+RUN yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses
+RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" 
+RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --verbose --sdk_root=${ANDROID_HOME} "build-tools;33.0.1" || \
+    { echo "Failed to install build-tools;33.0.1"; exit 1; }
 # Copy the entire project to the working directory
 COPY . .
 
+# Build web assets for the Ionic project
+RUN npm run build
+
+# Build the Capacitor Android project
+RUN npm install @capacitor/core @capacitor/cli @capacitor/android
+
+RUN npx cap init --web-dir=www || true
+RUN npx cap add android
+RUN npx cap sync
+
 # Build APK in debug mode with detailed logging
-RUN ionic cordova build android --debug || exit 1
+RUN npx cap copy android && npx cap open android || exit 1
+RUN ./android/gradlew assembleDebug -p android || exit 1
 
 # List files in the project directory for inspection
 RUN ls -la
 
 # Verify the directory structure for Android builds
-RUN ls -la platforms/android/app
+RUN ls -la android/app
 
 # Verify if APK file was generated
-RUN if [ ! -d "platforms/android/app/build" ]; then echo "Error: Build directory not found"; exit 1; fi
+RUN if [ ! -d "android/app/build" ]; then echo "Error: Build directory not found"; exit 1; fi
 
 # List files in the build directory for inspection
-RUN ls -la platforms/android/app/build
+RUN ls -la android/app/build/outputs/apk/debug
 
 # Copy APK to a directory
 RUN mkdir -p /app/apk
-RUN cp platforms/android/app/build/outputs/apk/debug/app-debug.apk /app/apk/app-debug.apk
+RUN cp android/app/build/outputs/apk/debug/app-debug.apk /app/apk/app-debug.apk
