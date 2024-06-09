@@ -1,5 +1,12 @@
-# Use an official Node.js runtime as a base image
-FROM node:20-alpine
+# Use an OpenJDK base image with Java 17 for amd64 architecture
+FROM amd64/openjdk:17-slim
+
+# Install Node.js and npm
+RUN apt-get update && \
+    apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs wget unzip && \
+    apt-get clean
 
 # Set the working directory in the container
 WORKDIR /app
@@ -7,21 +14,19 @@ WORKDIR /app
 # Copy package.json and package-lock.json to the working directory
 COPY package*.json ./
 
-# Install Ionic CLI globally
-RUN npm install -g @ionic/cli@7
-
-# Install dependencies using clean install
-RUN npm ci --only=prod
+# Install Ionic, Cordova, and Cordova resources CLI globally
+RUN npm install -g @ionic/cli@7 cordova
 
 # Expose the port the app runs on
 EXPOSE 8100
 
-# Install OpenJDK and Android SDK dependencies
-RUN apk add --no-cache openjdk8-jre wget unzip
+# Set up environment variables for Java and Android SDK
+ENV JAVA_HOME=/usr/local/openjdk-17
+ENV PATH=${JAVA_HOME}/bin:${PATH}
 
-# Set up environment variables
-ENV ANDROID_HOME /opt/android-sdk
-ENV PATH ${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools
+# Set up environment variables for Android SDK
+ENV ANDROID_HOME=/opt/android-sdk
+ENV PATH=${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools
 
 # Download and extract Android SDK tools
 RUN mkdir -p ${ANDROID_HOME}/cmdline-tools && \
@@ -34,43 +39,47 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools && \
 RUN mkdir -p ${ANDROID_HOME}/licenses && \
     echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ${ANDROID_HOME}/licenses/android-sdk-license
 
-
+# Update and install required Android SDK packages
 RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --update
-
-# Install required Android SDK packages
 RUN yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses
-RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" 
-RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --verbose --sdk_root=${ANDROID_HOME} "build-tools;33.0.1" || \
-    { echo "Failed to install build-tools;33.0.1"; exit 1; }
+RUN ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-33" "build-tools;34.0.0"
+
+# Download and install Gradle
+RUN wget https://services.gradle.org/distributions/gradle-7.3.3-bin.zip -O /tmp/gradle.zip && \
+    unzip -d /opt/gradle /tmp/gradle.zip && \
+    rm /tmp/gradle.zip
+
+ENV GRADLE_HOME=/opt/gradle/gradle-7.3.3
+ENV PATH=${PATH}:${GRADLE_HOME}/bin
+
+# Clear Gradle cache to avoid corrupted dependencies
+RUN rm -rf /root/.gradle/caches
+
 # Copy the entire project to the working directory
 COPY . .
 
 # Build web assets for the Ionic project
 RUN npm run build
 
-# Build the Capacitor Android project
-RUN npm install @capacitor/core @capacitor/cli @capacitor/android
+# Initialize and add Android platform using Cordova
+RUN ionic integrations enable cordova
+RUN ionic cordova platform add android
 
-RUN npx cap init --web-dir=www || true
-RUN npx cap add android
-RUN npx cap sync
+# Set environment variable to bypass the AAPT2 issue
+ENV ANDROID_DISABLE_DAEMON=true
 
-# Build APK in debug mode with detailed logging
-RUN npx cap copy android && npx cap open android || exit 1
-RUN ./android/gradlew assembleDebug -p android || exit 1
+# Increase JVM memory limits
+ENV GRADLE_OPTS="-Dorg.gradle.daemon=false -Xmx4096m"
 
-# List files in the project directory for inspection
-RUN ls -la
-
-# Verify the directory structure for Android builds
-RUN ls -la android/app
+# Build the Cordova Android project
+RUN cordova build android --debug --verbose
 
 # Verify if APK file was generated
-RUN if [ ! -d "android/app/build" ]; then echo "Error: Build directory not found"; exit 1; fi
+RUN if [ ! -d "platforms/android/app/build" ]; then echo "Error: Build directory not found"; exit 1; fi
 
 # List files in the build directory for inspection
-RUN ls -la android/app/build/outputs/apk/debug
+RUN ls -la platforms/android/app/build/outputs/apk/debug
 
 # Copy APK to a directory
 RUN mkdir -p /app/apk
-RUN cp android/app/build/outputs/apk/debug/app-debug.apk /app/apk/app-debug.apk
+RUN cp platforms/android/app/build/outputs/apk/debug/app-debug.apk /app/apk/app-debug.apk
