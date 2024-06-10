@@ -1,6 +1,6 @@
 # Ionic-Build-Docker
 
-## Build, run Docker and copy the Android APK to your local apk dicrectory.
+### Build, run Docker and copy the Android APK to your local apk dicrectory.
 
 1. Run the following command to make the script executable:
 ```
