@@ -74,12 +74,6 @@ ENV GRADLE_OPTS="-Dorg.gradle.daemon=false -Xmx4096m"
 # Build the Cordova Android project
 RUN cordova build android --debug --verbose
 
-# Verify if APK file was generated
-RUN if [ ! -d "platforms/android/app/build" ]; then echo "Error: Build directory not found"; exit 1; fi
 
-# List files in the build directory for inspection
-RUN ls -la platforms/android/app/build/outputs/apk/debug
-
-# Copy APK to a directory
-RUN mkdir -p /app/apk
-RUN cp platforms/android/app/build/outputs/apk/debug/app-debug.apk /app/apk/app-debug.apk
+# Set the default command to start the Ionic app
+CMD ["ionic", "serve", "--host", "0.0.0.0"]
