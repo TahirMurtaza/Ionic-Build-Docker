@@ -59,7 +59,7 @@ RUN rm -rf /root/.gradle/caches
 COPY . .
 
 # Install node modules
-RUN npm run install
+RUN npm install
 
 # Build web assets for the Ionic project
 RUN npm run build
